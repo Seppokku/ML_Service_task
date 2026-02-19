@@ -1,0 +1,27 @@
+services:
+  inference:
+    build:
+      context: .
+      dockerfile: Dockerfile.inference
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app/src
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./model_registry:/app/model_registry
+    command: ["uvicorn", "inference.app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  training:
+    build:
+      context: .
+      dockerfile: Dockerfile.training
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./data:/app/data
+      - ./model_registry:/app/model_registry
+    command: ["python", "-m", "training.train"]
+    profiles: ["train"]

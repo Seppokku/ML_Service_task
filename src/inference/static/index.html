@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Burnout ML Service Dashboard</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg-gradient:
+          radial-gradient(circle at 12% 8%, rgba(124, 92, 255, 0.18), transparent 35%),
+          radial-gradient(circle at 85% 12%, rgba(59, 130, 246, 0.18), transparent 40%),
+          linear-gradient(160deg, #f8fafc 0%, #eef2ff 45%, #e2e8f0 100%);
+        --header-gradient: linear-gradient(135deg, #0b1120 0%, #111c36 55%, #1e1b4b 100%);
+        --card: rgba(255, 255, 255, 0.92);
+        --card-strong: #ffffff;
+        --text: #0b1220;
+        --muted: #5b6474;
+        --accent: #7c5cff;
+        --accent-2: #3b82f6;
+        --accent-soft: rgba(124, 92, 255, 0.12);
+        --ok: #16a34a;
+        --warn: #f59e0b;
+        --border: rgba(148, 163, 184, 0.4);
+        --shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+        --shadow-sm: 0 6px 16px rgba(15, 23, 42, 0.12);
+        --surface: #f8fafc;
+        --code-bg: #eff4ff;
+        --row-hover: rgba(99, 102, 241, 0.05);
+        --pre-bg: #0b1220;
+        --pre-text: #e2e8f0;
+        font-family: "Inter", "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        background: var(--bg-gradient);
+        color: var(--text);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg-gradient:
+          radial-gradient(circle at 10% 10%, rgba(139, 92, 246, 0.22), transparent 35%),
+          radial-gradient(circle at 85% 5%, rgba(34, 211, 238, 0.18), transparent 40%),
+          linear-gradient(160deg, #0b1120 0%, #0f172a 55%, #111827 100%);
+        --header-gradient: linear-gradient(135deg, #050815 0%, #0f172a 55%, #111827 100%);
+        --card: rgba(15, 23, 42, 0.78);
+        --card-strong: #111827;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #8b5cf6;
+        --accent-2: #22d3ee;
+        --accent-soft: rgba(139, 92, 246, 0.2);
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --border: rgba(148, 163, 184, 0.2);
+        --shadow: 0 24px 60px rgba(2, 6, 23, 0.6);
+        --shadow-sm: 0 8px 24px rgba(2, 6, 23, 0.4);
+        --surface: rgba(15, 23, 42, 0.6);
+        --code-bg: rgba(30, 41, 59, 0.8);
+        --row-hover: rgba(148, 163, 184, 0.08);
+        --pre-bg: #05070d;
+        --pre-text: #e2e8f0;
+      }
+      header {
+        background: var(--header-gradient);
+        color: #f8fafc;
+        padding: 30px 0;
+        box-shadow: var(--shadow-sm);
+      }
+      .header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      header p {
+        margin: 6px 0 0;
+        color: #cbd5f5;
+      }
+      .header-badge {
+        background: rgba(124, 92, 255, 0.2);
+        border: 1px solid rgba(124, 92, 255, 0.4);
+        color: #e2e8f0;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+        margin-top: -56px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 18px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px;
+        backdrop-filter: blur(8px);
+        box-shadow: var(--shadow-sm);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease;
+      }
+      body.loaded .card {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow);
+      }
+      .section {
+        margin-top: 18px;
+      }
+      .card h3 {
+        margin: 0 0 12px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .card-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .card-subtitle {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.6), transparent);
+        margin: 12px 0;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+      }
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: var(--warn);
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+      }
+      .dot.ok {
+        background: var(--ok);
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: rgba(15, 23, 42, 0.04);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 11px;
+      }
+      tbody tr:hover {
+        background: var(--row-hover);
+      }
+      code {
+        background: var(--code-bg);
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 140px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        padding: 10px;
+        font-family: "Consolas", monospace;
+        font-size: 12px;
+        background: var(--surface);
+      }
+      button {
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        cursor: pointer;
+        font-weight: 600;
+        box-shadow: 0 6px 14px rgba(99, 102, 241, 0.2);
+      }
+      button:hover {
+        filter: brightness(0.98);
+      }
+      button.ghost {
+        background: transparent;
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        box-shadow: none;
+        padding: 8px 12px;
+        font-size: 12px;
+      }
+      button.ghost:hover {
+        background: rgba(148, 163, 184, 0.15);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 24px;
+      }
+      .panel {
+        background: var(--card-strong);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      }
+      body[data-theme="dark"] .panel {
+        background: rgba(15, 23, 42, 0.55);
+      }
+      .pill {
+        background: var(--accent-soft);
+        color: #4338ca;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: rgba(34, 197, 94, 0.12);
+        color: #16a34a;
+      }
+      .status-pill.warn {
+        background: rgba(245, 158, 11, 0.15);
+        color: #d97706;
+      }
+      .status-pill.error {
+        background: rgba(239, 68, 68, 0.12);
+        color: #dc2626;
+      }
+      body[data-theme="dark"] .pill {
+        color: #ddd6fe;
+      }
+      pre {
+        background: var(--pre-bg);
+        color: var(--pre-text);
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 12px;
+        overflow-x: auto;
+      }
+      .chart-card {
+        background: var(--card-strong);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+      body[data-theme="dark"] .chart-card {
+        background: rgba(15, 23, 42, 0.7);
+      }
+      .chart-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .chart-value {
+        color: var(--text);
+        font-weight: 700;
+      }
+      .sparkline {
+        width: 100%;
+        height: 80px;
+      }
+      .sparkline path {
+        fill: none;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .metric-card {
+        background: var(--card-strong);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+      }
+      body[data-theme="dark"] .metric-card {
+        background: rgba(15, 23, 42, 0.55);
+      }
+      .metric-title {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .metric-value {
+        font-size: 18px;
+        font-weight: 700;
+        margin-top: 4px;
+      }
+      .metric-bar {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.25);
+        overflow: hidden;
+        margin-top: 8px;
+      }
+      .metric-bar span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      }
+      .input-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      input[type="file"] {
+        font-size: 12px;
+      }
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.35);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container header-inner">
+        <div>
+          <h1>Burnout ML Service Dashboard</h1>
+          <p>Инференс, метрики и состояние моделей</p>
+        </div>
+        <div class="header-actions">
+          <div class="header-badge">Inference 24/7</div>
+          <button class="ghost" id="theme-toggle" type="button">Темная тема</button>
+        </div>
+      </div>
+    </header>
+    <div class="container">
+      <div class="hero">
+        <div class="card">
+          <div class="card-title">
+            <h3>Inference статус</h3>
+            <span class="status-badge">
+              <span class="dot" id="health-dot"></span>
+              <span id="health-text">Проверяем...</span>
+            </span>
+          </div>
+          <div class="divider"></div>
+          <p class="muted">Текущая модель</p>
+          <p><code id="model-version">—</code></p>
+          <p class="muted">Порог решения: <code id="model-threshold">—</code></p>
+          <p class="card-subtitle">Сервис доступен 24/7</p>
+        </div>
+        <div class="card">
+          <div class="card-title">
+            <h3>Inference статистика</h3>
+            <span class="card-subtitle">Последний запуск</span>
+          </div>
+          <div class="divider"></div>
+          <div class="row">
+            <span class="pill">requests: <span id="stat-requests">0</span></span>
+            <span class="pill">errors: <span id="stat-errors">0</span></span>
+            <span class="pill">reloads: <span id="stat-reloads">0</span></span>
+          </div>
+          <p class="muted">Последний reload: <span id="stat-reload-at">—</span></p>
+        </div>
+      </div>
+
+      <div class="card section">
+        <div class="card-title">
+          <h3>Метрики по версиям</h3>
+          <span class="card-subtitle">Последние модели</span>
+        </div>
+        <div class="split" style="margin-top: 12px">
+          <div class="chart-card">
+            <div class="chart-head">
+              <span>PR-AUC</span>
+              <span class="chart-value" id="chart-pr-last">—</span>
+            </div>
+            <svg class="sparkline" id="chart-pr" viewBox="0 0 260 80"></svg>
+          </div>
+          <div class="chart-card">
+            <div class="chart-head">
+              <span>Recall@P</span>
+              <span class="chart-value" id="chart-recall-last">—</span>
+            </div>
+            <svg class="sparkline" id="chart-recall" viewBox="0 0 260 80"></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section">
+        <h3>Регистр моделей (последние версии)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Версия</th>
+              <th>Создана</th>
+              <th>PR-AUC</th>
+              <th>Recall@P</th>
+              <th>Train/Valid/Test</th>
+            </tr>
+          </thead>
+          <tbody id="registry-body">
+            <tr>
+              <td colspan="5" class="muted">Пока нет моделей</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card section">
+        <div class="card-title">
+          <h3>Quick Predict</h3>
+          <span class="card-subtitle">POST /predict</span>
+        </div>
+        <div class="split" style="margin-top: 12px">
+          <div class="panel">
+            <p class="muted">Запрос</p>
+            <textarea id="payload"></textarea>
+            <div class="row" style="margin-top: 10px">
+              <button id="predict-btn">Отправить</button>
+            </div>
+          </div>
+          <div class="panel">
+            <p class="muted">Ответ</p>
+            <pre id="predict-output">Ответ появится здесь...</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const payloadEl = document.getElementById("payload");
+      const outputEl = document.getElementById("predict-output");
+      const themeToggle = document.getElementById("theme-toggle");
+
+      function setTheme(theme) {
+        document.body.setAttribute("data-theme", theme);
+        localStorage.setItem("theme", theme);
+        if (themeToggle) {
+          themeToggle.textContent = theme === "dark" ? "Светлая тема" : "Темная тема";
+        }
+      }
+
+      const storedTheme = localStorage.getItem("theme");
+      const prefersDark =
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setTheme(storedTheme || (prefersDark ? "dark" : "light"));
+
+      if (themeToggle) {
+        themeToggle.addEventListener("click", () => {
+          const current = document.body.getAttribute("data-theme");
+          setTheme(current === "dark" ? "light" : "dark");
+        });
+      }
+
+      payloadEl.value = JSON.stringify(
+        {
+          items: [
+            {
+              team_id: "team-1",
+              period_start: "2026-02-01",
+              meetings_count: 12,
+              meetings_minutes: 420,
+              after_hours_ratio: 0.35,
+              commits_count: 26,
+              active_days: 5,
+              tasks_completed: 18,
+              tasks_reopened: 4,
+              messages_count: 160,
+              context_switches: 22,
+              deep_work_minutes: 240,
+            },
+          ],
+        },
+        null,
+        2
+      );
+
+      async function fetchJson(url) {
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error(`${url} -> ${res.status}`);
+        }
+        return res.json();
+      }
+
+      function formatTime(value) {
+        if (!value) {
+          return "—";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return "—";
+        }
+        return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+
+      function renderSparkline(svgId, values, options) {
+        const svg = document.getElementById(svgId);
+        if (!svg) {
+          return;
+        }
+        const width = 260;
+        const height = 80;
+        const pad = 8;
+        svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+        svg.innerHTML = "";
+
+        if (!values || values.length === 0) {
+          const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          text.setAttribute("x", width / 2);
+          text.setAttribute("y", height / 2);
+          text.setAttribute("text-anchor", "middle");
+          text.setAttribute("fill", "var(--muted)");
+          text.textContent = "Нет данных";
+          svg.appendChild(text);
+          return;
+        }
+
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const range = max - min || 1;
+        const step = values.length === 1 ? 0 : (width - pad * 2) / (values.length - 1);
+        const points = values.map((v, i) => {
+          const x = pad + step * i;
+          const y = height - pad - ((v - min) / range) * (height - pad * 2);
+          return [x, y];
+        });
+
+        let d = `M ${points[0][0]} ${points[0][1]}`;
+        for (let i = 1; i < points.length; i += 1) {
+          d += ` L ${points[i][0]} ${points[i][1]}`;
+        }
+
+        const area = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        area.setAttribute(
+          "d",
+          `M ${points[0][0]} ${height - pad} ` +
+            points.map((p) => `L ${p[0]} ${p[1]}`).join(" ") +
+            ` L ${points[points.length - 1][0]} ${height - pad} Z`
+        );
+        area.setAttribute("fill", options.fill);
+        area.setAttribute("opacity", "0.35");
+        svg.appendChild(area);
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        path.setAttribute("stroke", options.stroke);
+        svg.appendChild(path);
+      }
+
+      function renderCharts(versions) {
+        const ordered = (versions || []).slice().reverse();
+        const prValues = ordered
+          .map((item) => item.metrics?.pr_auc)
+          .filter((value) => typeof value === "number");
+        const recallValues = ordered
+          .map((item) => item.metrics?.recall_at_precision)
+          .filter((value) => typeof value === "number");
+
+        const prLast = prValues.length ? prValues[prValues.length - 1].toFixed(3) : "—";
+        const recallLast = recallValues.length
+          ? recallValues[recallValues.length - 1].toFixed(3)
+          : "—";
+
+        document.getElementById("chart-pr-last").textContent = prLast;
+        document.getElementById("chart-recall-last").textContent = recallLast;
+
+        renderSparkline("chart-pr", prValues, {
+          stroke: "#7c5cff",
+          fill: "rgba(124, 92, 255, 0.35)",
+        });
+        renderSparkline("chart-recall", recallValues, {
+          stroke: "#22c55e",
+          fill: "rgba(34, 197, 94, 0.3)",
+        });
+      }
+
+      async function loadStatus() {
+        try {
+          const health = await fetchJson("/health");
+          const stats = await fetchJson("/stats");
+          const registry = await fetchJson("/registry?limit=5");
+
+          document.getElementById("health-text").textContent =
+            health.model_loaded ? "OK" : "Нет модели";
+          const dot = document.getElementById("health-dot");
+          dot.classList.toggle("ok", health.model_loaded);
+          document.getElementById("model-version").textContent =
+            health.model_version || "—";
+
+          document.getElementById("stat-requests").textContent =
+            stats.predict_requests ?? 0;
+          document.getElementById("stat-errors").textContent =
+            stats.predict_errors ?? 0;
+          document.getElementById("stat-reloads").textContent =
+            stats.reload_count ?? 0;
+          document.getElementById("stat-reload-at").textContent =
+            formatTime(stats.last_reload_at);
+
+          const body = document.getElementById("registry-body");
+          body.innerHTML = "";
+          if (!registry.versions || registry.versions.length === 0) {
+            body.innerHTML =
+              '<tr><td colspan="5" class="muted">Пока нет моделей</td></tr>';
+            document.getElementById("model-threshold").textContent = "—";
+            renderCharts([]);
+            return;
+          }
+
+          const latest = registry.versions[0];
+          const threshold = latest?.metadata?.decision_threshold;
+          document.getElementById("model-threshold").textContent =
+            typeof threshold === "number" ? threshold.toFixed(3) : "—";
+
+          renderCharts(registry.versions);
+
+          registry.versions.forEach((entry) => {
+            const prAuc = entry.metrics?.pr_auc ?? "—";
+            const recall = entry.metrics?.recall_at_precision ?? "—";
+            const trainRows = entry.metadata?.train_rows ?? "—";
+            const validRows = entry.metadata?.valid_rows ?? "—";
+            const testRows = entry.metadata?.test_rows ?? "—";
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td><code>${entry.version}</code></td>
+              <td>${entry.created_at || "—"}</td>
+              <td>${typeof prAuc === "number" ? prAuc.toFixed(3) : prAuc}</td>
+              <td>${typeof recall === "number" ? recall.toFixed(3) : recall}</td>
+              <td>${trainRows}/${validRows}/${testRows}</td>
+            `;
+            body.appendChild(row);
+          });
+        } catch (err) {
+          document.getElementById("health-text").textContent = "Ошибка";
+          console.error(err);
+        }
+      }
+
+      document.getElementById("predict-btn").addEventListener("click", async () => {
+        try {
+          const payload = JSON.parse(payloadEl.value);
+          const res = await fetch("/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          outputEl.textContent = JSON.stringify(data, null, 2);
+        } catch (err) {
+          outputEl.textContent = `Ошибка: ${err.message}`;
+        }
+      });
+
+      document.body.classList.add("loaded");
+      loadStatus();
+      setInterval(loadStatus, 10000);
+    </script>
+  </body>
+</html>
