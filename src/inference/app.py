@@ -5,14 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
 from common.config import get_config
 from common.logging import get_logger, setup_logging
-from common.preprocessing import build_features
+from common.preprocessing import TextPreprocessConfig, preprocess_texts
 from common.registry import ModelRegistry
 from inference.model_loader import ModelService
 from inference.schemas import (
@@ -29,11 +28,16 @@ config = get_config()
 setup_logging(config.log_level)
 logger = get_logger("inference")
 
-app = FastAPI(title="Burnout Risk Inference", version="0.1.0")
+app = FastAPI(title="Text Classification Inference", version="0.1.0")
 registry = ModelRegistry(config.registry_path)
 model_service = ModelService(registry)
 static_dir = Path(__file__).resolve().parent / "static"
 index_file = static_dir / "index.html"
+text_config = TextPreprocessConfig(
+    use_stopwords=config.text_use_stopwords,
+    use_stem=config.text_use_stem,
+    use_lemma=config.text_use_lemma,
+)
 
 app.state.stats = {
     "predict_requests": 0,
@@ -114,36 +118,33 @@ def predict(request: PredictRequest) -> PredictResponse:
         app.state.stats["predict_errors"] += 1
         _http_error(503, "MODEL_NOT_LOADED", "Model is not loaded.")
 
-    payload = [item.model_dump() for item in request.items]
+    payload = [item.text for item in request.items]
     logger.info("Predict request received. items=%s", len(payload))
-    raw_df = pd.DataFrame(payload)
 
-    try:
-        features = build_features(raw_df)
-    except ValueError as exc:
-        logger.warning("Invalid input: %s", exc)
-        app.state.stats["predict_errors"] += 1
-        _http_error(400, "INVALID_INPUT", str(exc))
+    processed_texts = preprocess_texts(payload, config=text_config)
+    labels = model_service.predict_labels(processed_texts)
+    probas = model_service.predict_proba(processed_texts)
+    known_labels = model_service.metadata.get("labels", [])
 
-    feature_names = model_service.metadata.get("feature_names")
-    if feature_names:
-        missing = [col for col in feature_names if col not in features.columns]
-        if missing:
-            app.state.stats["predict_errors"] += 1
-            _http_error(400, "FEATURE_MISMATCH", f"Missing features: {missing}")
-        features = features[feature_names]
-
-    scores = model_service.predict(features)
-    threshold = model_service.metadata.get("decision_threshold", 0.5)
-    try:
-        threshold_value = float(threshold)
-    except (TypeError, ValueError):
-        threshold_value = 0.5
     predictions = [
-        PredictionItem(risk_score=score, is_high_risk=score >= threshold_value)
-        for score in scores
+        PredictionItem(
+            predicted_label=predicted_label,
+            confidence=max(probabilities) if probabilities else 1.0,
+            class_probabilities=(
+                {
+                    label: float(probability)
+                    for label, probability in zip(known_labels, probabilities)
+                }
+                if known_labels and len(known_labels) == len(probabilities)
+                else {}
+            ),
+        )
+        for predicted_label, probabilities in zip(labels, probas)
     ]
-    return PredictResponse(model_version=model_service.version or "unknown", predictions=predictions)
+    return PredictResponse(
+        model_version=model_service.version or "unknown",
+        predictions=predictions,
+    )
 
 
 @app.post("/reload", response_model=ReloadResponse)

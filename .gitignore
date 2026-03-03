@@ -17,5 +17,4 @@ data/raw/*.csv
 data/raw/uploads/
 model_registry/*
 !model_registry/README.md
-catboost_info/
 PROJECT.md

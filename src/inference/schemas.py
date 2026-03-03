@@ -1,36 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class BurnoutFeatures(BaseModel):
+class TextPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    team_id: Optional[str] = None
-    period_start: Optional[str] = None
-    meetings_count: int = Field(ge=0, le=200)
-    meetings_minutes: float = Field(ge=0)
-    after_hours_ratio: float = Field(ge=0.0, le=1.0)
-    commits_count: int = Field(ge=0)
-    active_days: int = Field(ge=0, le=31)
-    tasks_completed: int = Field(ge=0)
-    tasks_reopened: int = Field(ge=0)
-    messages_count: int = Field(ge=0)
-    context_switches: int = Field(ge=0)
-    deep_work_minutes: float = Field(ge=0)
+    text: str = Field(min_length=5)
 
 
 class PredictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: List[BurnoutFeatures] = Field(min_length=1)
+    items: List[TextPayload] = Field(min_length=1)
 
 
 class PredictionItem(BaseModel):
-    risk_score: float
-    is_high_risk: bool
+    predicted_label: str
+    confidence: float
+    class_probabilities: Dict[str, float] = Field(default_factory=dict)
 
 
 class PredictResponse(BaseModel):

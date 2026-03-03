@@ -6,15 +6,20 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 import requests
-from catboost import CatBoostClassifier
-from sklearn.model_selection import ParameterSampler
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
 
-from common.config import get_config
-from common.data_generation import ensure_split_datasets, split_dataset_stratified
+from common.config import ROOT_DIR, get_config
+from common.dataset import stratified_train_valid_test_split
 from common.logging import get_logger, setup_logging
 from common.preprocessing import (
-    build_features,
-    get_categorical_features,
+    TARGET_COLUMN,
+    TEXT_COLUMN,
+    TextPreprocessConfig,
+    preprocess_texts,
+    validate_training_frame,
 )
 from common.registry import ModelRegistry
 from training.metrics import compute_metrics
@@ -25,58 +30,48 @@ def _load_dataset(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Dataset not found: {path}")
     df = pd.read_csv(path)
-    if "burnout_label" not in df.columns:
-        raise ValueError("Dataset must contain burnout_label column.")
-    return df
+    validate_training_frame(df)
+    frame = df[[TEXT_COLUMN, TARGET_COLUMN]].copy()
+    frame[TEXT_COLUMN] = frame[TEXT_COLUMN].fillna("").astype(str)
+    frame[TARGET_COLUMN] = frame[TARGET_COLUMN].fillna("unknown").astype(str)
+    frame = frame[frame[TEXT_COLUMN].str.len() > 0].reset_index(drop=True)
+    if frame.empty:
+        raise ValueError("Dataset has no non-empty text rows.")
+    return frame
 
 
 def _prefix_metrics(metrics: dict[str, float], prefix: str) -> dict[str, float]:
     return {f"{prefix}{key}": value for key, value in metrics.items()}
 
 
-def _load_split_datasets(
-    config, logger, data_path_override: Optional[Path]
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if data_path_override is not None:
-        data_path = Path(data_path_override)
-        logger.info("Using override dataset: %s", data_path)
-        df = _load_dataset(data_path)
-        train_df, valid_df, test_df = split_dataset_stratified(
-            df,
-            label_col="burnout_label",
-            train_ratio=config.train_ratio,
-            valid_ratio=config.valid_ratio,
-            test_ratio=config.test_ratio,
-            seed=config.random_seed,
-        )
-        logger.info(
-            "Override split sizes: train=%s valid=%s test=%s",
-            len(train_df),
-            len(valid_df),
-            len(test_df),
-        )
-        return train_df, valid_df, test_df
-
-    train_path, valid_path, test_path = ensure_split_datasets(
-        config.data_path,
-        processed_dir=config.processed_dir,
-        rows=config.synthetic_rows,
-        seed=config.random_seed,
-        generate_if_missing=config.generate_data_if_missing,
-        train_ratio=config.train_ratio,
-        valid_ratio=config.valid_ratio,
-        test_ratio=config.test_ratio,
-        label_positive_rate=config.label_positive_rate,
-        label_noise_std=config.label_noise_std,
-        label_sharpness=config.label_sharpness,
-        label_signal_scale=config.label_signal_scale,
-    )
-    logger.info("Using dataset splits: %s | %s | %s", train_path, valid_path, test_path)
-    return (
-        _load_dataset(train_path),
-        _load_dataset(valid_path),
-        _load_dataset(test_path),
-    )
+def _build_candidates(max_features: int, seed: int) -> list[tuple[str, Pipeline]]:
+    return [
+        (
+            "count_mnb",
+            Pipeline(
+                [
+                    ("vect", CountVectorizer(max_features=max_features)),
+                    ("clf", MultinomialNB()),
+                ]
+            ),
+        ),
+        (
+            "tfidf_logreg",
+            Pipeline(
+                [
+                    (
+                        "vect",
+                        TfidfVectorizer(
+                            max_features=max_features,
+                            ngram_range=(1, 2),
+                            min_df=2,
+                        ),
+                    ),
+                    ("clf", LogisticRegression(max_iter=2000, random_state=seed)),
+                ]
+            ),
+        ),
+    ]
 
 
 def _notify_inference(reload_url: str, version: str, logger) -> None:
@@ -96,109 +91,84 @@ def run_training(
     setup_logging(config.log_level)
     logger = get_logger("training")
 
-    if data_path_override is not None:
-        train_df, valid_df, test_df = _load_split_datasets(
-            config, logger, data_path_override
-        )
-    else:
-        train_df, valid_df, test_df = _load_split_datasets(config, logger, None)
+    data_path = Path(data_path_override) if data_path_override else config.data_path
+    logger.info("Loading dataset: %s", data_path)
+    fallback_data_path = ROOT_DIR / "data" / "raw" / "bbc-text.csv"
+    try:
+        raw_df = _load_dataset(data_path)
+    except (FileNotFoundError, ValueError) as exc:
+        if data_path != fallback_data_path and fallback_data_path.exists():
+            logger.warning(
+                "Primary dataset is invalid (%s). Falling back to %s",
+                exc,
+                fallback_data_path,
+            )
+            data_path = fallback_data_path
+            raw_df = _load_dataset(data_path)
+        else:
+            raise
+    train_df, valid_df, test_df = stratified_train_valid_test_split(
+        raw_df,
+        label_col=TARGET_COLUMN,
+        train_ratio=config.train_ratio,
+        valid_ratio=config.valid_ratio,
+        test_ratio=config.test_ratio,
+        seed=config.random_seed,
+    )
 
-    y_train = train_df["burnout_label"].astype(int).to_numpy()
-    y_valid = valid_df["burnout_label"].astype(int).to_numpy()
-    y_test = test_df["burnout_label"].astype(int).to_numpy()
+    text_cfg = TextPreprocessConfig(
+        use_stopwords=config.text_use_stopwords,
+        use_stem=config.text_use_stem,
+        use_lemma=config.text_use_lemma,
+    )
 
-    if len(set(y_train)) < 2 or len(set(y_valid)) < 2:
-        logger.warning("Train/valid splits have a single class. Training skipped.")
-        return {
-            "status": "skipped",
-            "message": "Train/valid splits have a single class.",
-            "metrics": {},
-        }
+    X_train = preprocess_texts(train_df[TEXT_COLUMN].tolist(), text_cfg)
+    X_valid = preprocess_texts(valid_df[TEXT_COLUMN].tolist(), text_cfg)
+    X_test = preprocess_texts(test_df[TEXT_COLUMN].tolist(), text_cfg)
+    y_train = train_df[TARGET_COLUMN].astype(str).to_numpy()
+    y_valid = valid_df[TARGET_COLUMN].astype(str).to_numpy()
+    y_test = test_df[TARGET_COLUMN].astype(str).to_numpy()
 
-    X_train = build_features(train_df)
-    X_valid = build_features(valid_df)
-    X_test = build_features(test_df)
-    categorical_features = get_categorical_features()
-    cat_feature_indices = [X_train.columns.get_loc(col) for col in categorical_features]
     logger.info(
         "Split sizes: train=%s valid=%s test=%s",
-        len(X_train),
-        len(X_valid),
-        len(X_test),
+        len(train_df),
+        len(valid_df),
+        len(test_df),
     )
 
-    param_space = {
-        "iterations": [300, 500, 800, 1000, 1200],
-        "depth": [4, 5, 6, 7],
-        "learning_rate": [0.03, 0.05, 0.07, 0.1],
-        "l2_leaf_reg": [3, 5, 7, 9],
-        "subsample": [0.7, 0.85, 1.0],
-        "rsm": [0.7, 0.85, 1.0],
-    }
-
-    candidates = list(
-        ParameterSampler(
-            param_space,
-            n_iter=max(1, config.cb_tuning_trials),
-            random_state=config.random_seed,
-        )
-    )
-
+    candidates = _build_candidates(config.max_features, config.random_seed)
     best_score = None
     best_metrics = None
     best_model = None
-    best_params = None
+    best_model_name = None
 
-    for idx, params in enumerate(candidates, start=1):
-        params = params.copy()
-        if params.get("subsample", 1.0) < 1.0:
-            params["bootstrap_type"] = "Bernoulli"
-
-        model = CatBoostClassifier(
-            loss_function="Logloss",
-            eval_metric="PRAUC",
-            random_seed=config.random_seed,
-            verbose=False,
-            auto_class_weights="Balanced",
-            od_type="Iter",
-            od_wait=config.cb_early_stopping_rounds,
-            **params,
-        )
+    for idx, (model_name, model) in enumerate(candidates, start=1):
 
         try:
-            model.fit(
-                X_train,
-                y_train,
-                cat_features=cat_feature_indices,
-                eval_set=(X_valid, y_valid),
-                use_best_model=True,
-            )
+            model.fit(X_train, y_train)
         except Exception as exc:
             logger.warning("Trial %s failed: %s", idx, exc)
             continue
 
-        y_prob = model.predict_proba(X_valid)[:, 1]
-        metrics = compute_metrics(
-            y_valid, y_prob, precision_threshold=config.recall_precision_threshold
-        )
+        y_pred = model.predict(X_valid)
+        metrics = compute_metrics(y_valid, y_pred)
         logger.info(
-            "Trial %s/%s params=%s metrics=%s",
+            "Trial %s/%s model=%s metrics=%s",
             idx,
             len(candidates),
-            params,
+            model_name,
             json.dumps(metrics, indent=2),
         )
 
         score = (
-            metrics.get("pr_auc", 0.0),
-            metrics.get("recall_at_precision", 0.0),
-            metrics.get("recall_at_top_k", 0.0),
+            metrics.get("f1_macro", 0.0),
+            metrics.get("accuracy", 0.0),
         )
         if best_score is None or score > best_score:
             best_score = score
             best_metrics = metrics
             best_model = model
-            best_params = params
+            best_model_name = model_name
 
     if best_model is None or best_metrics is None:
         logger.warning("No successful training trials.")
@@ -210,47 +180,45 @@ def run_training(
 
     metrics = best_metrics
     model = best_model
-    decision_threshold = metrics.get("best_f2_threshold", 0.5)
-    logger.info("Best params: %s", json.dumps(best_params, indent=2))
+    logger.info("Best model: %s", best_model_name)
     logger.info("Validation metrics: %s", json.dumps(metrics, indent=2))
 
-    if len(set(y_test)) < 2:
-        logger.warning("Test split has a single class. Test metrics skipped.")
-    else:
-        y_test_prob = model.predict_proba(X_test)[:, 1]
-        test_metrics = compute_metrics(
-            y_test, y_test_prob, precision_threshold=config.recall_precision_threshold
-        )
-        metrics.update(_prefix_metrics(test_metrics, "test_"))
-        logger.info("Test metrics: %s", json.dumps(test_metrics, indent=2))
+    y_test_pred = model.predict(X_test)
+    test_metrics = compute_metrics(y_test, y_test_pred)
+    metrics.update(_prefix_metrics(test_metrics, "test_"))
+    logger.info("Test metrics: %s", json.dumps(test_metrics, indent=2))
 
-    if not is_model_acceptable(metrics, config.metrics_min_pr_auc, config.metrics_min_recall):
+    if not is_model_acceptable(
+        metrics, config.metrics_min_f1_macro, config.metrics_min_accuracy
+    ):
         logger.warning(
-            "Model rejected. pr_auc=%.4f recall@p>=%.2f=%.4f",
-            metrics.get("pr_auc", 0.0),
-            metrics.get("precision_threshold", 0.0),
-            metrics.get("recall_at_precision", 0.0),
+            "Model rejected. f1_macro=%.4f accuracy=%.4f",
+            metrics.get("f1_macro", 0.0),
+            metrics.get("accuracy", 0.0),
         )
         return {
             "status": "rejected",
             "message": "Model did not pass validation thresholds.",
             "metrics": metrics,
-            "best_params": best_params or {},
-            "decision_threshold": float(decision_threshold),
+            "best_model": best_model_name or "",
         }
 
     registry = ModelRegistry(config.registry_path)
     version = registry.save_model(
         model=model,
         metrics=metrics,
-        feature_names=list(X_train.columns),
+        feature_names=[TEXT_COLUMN],
         extra_metadata={
-            "train_rows": int(len(X_train)),
-            "valid_rows": int(len(X_valid)),
-            "test_rows": int(len(X_test)),
-            "positive_rate": float(y_train.mean()),
-            "best_params": best_params or {},
-            "decision_threshold": float(decision_threshold),
+            "train_rows": int(len(train_df)),
+            "valid_rows": int(len(valid_df)),
+            "test_rows": int(len(test_df)),
+            "labels": sorted(raw_df[TARGET_COLUMN].astype(str).unique().tolist()),
+            "text_preprocessing": {
+                "use_stopwords": text_cfg.use_stopwords,
+                "use_stem": text_cfg.use_stem,
+                "use_lemma": text_cfg.use_lemma,
+            },
+            "best_model": best_model_name or "",
         },
     )
     logger.info("Model saved to registry. version=%s", version)
@@ -263,12 +231,10 @@ def run_training(
         "message": "Model saved to registry.",
         "model_version": version,
         "metrics": metrics,
-        "best_params": best_params or {},
-        "decision_threshold": float(decision_threshold),
-        "train_rows": int(len(X_train)),
-        "valid_rows": int(len(X_valid)),
-        "test_rows": int(len(X_test)),
-        "positive_rate": float(y_train.mean()),
+        "best_model": best_model_name or "",
+        "train_rows": int(len(train_df)),
+        "valid_rows": int(len(valid_df)),
+        "test_rows": int(len(test_df)),
     }
 
 

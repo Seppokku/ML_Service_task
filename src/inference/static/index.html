@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Burnout ML Service Dashboard</title>
+    <title>Text Classification ML Service Dashboard</title>
     <style>
       :root {
         color-scheme: light;
@@ -407,7 +407,7 @@
     <header>
       <div class="container header-inner">
         <div>
-          <h1>Burnout ML Service Dashboard</h1>
+          <h1>Text Classification ML Service Dashboard</h1>
           <p>Инференс, метрики и состояние моделей</p>
         </div>
         <div class="header-actions">
@@ -429,7 +429,7 @@
           <div class="divider"></div>
           <p class="muted">Текущая модель</p>
           <p><code id="model-version">—</code></p>
-          <p class="muted">Порог решения: <code id="model-threshold">—</code></p>
+          <p class="muted">Лучшая модель: <code id="model-threshold">—</code></p>
           <p class="card-subtitle">Сервис доступен 24/7</p>
         </div>
         <div class="card">
@@ -455,14 +455,14 @@
         <div class="split" style="margin-top: 12px">
           <div class="chart-card">
             <div class="chart-head">
-              <span>PR-AUC</span>
+              <span>F1-macro</span>
               <span class="chart-value" id="chart-pr-last">—</span>
             </div>
             <svg class="sparkline" id="chart-pr" viewBox="0 0 260 80"></svg>
           </div>
           <div class="chart-card">
             <div class="chart-head">
-              <span>Recall@P</span>
+              <span>Accuracy</span>
               <span class="chart-value" id="chart-recall-last">—</span>
             </div>
             <svg class="sparkline" id="chart-recall" viewBox="0 0 260 80"></svg>
@@ -477,8 +477,8 @@
             <tr>
               <th>Версия</th>
               <th>Создана</th>
-              <th>PR-AUC</th>
-              <th>Recall@P</th>
+              <th>F1-macro</th>
+              <th>Accuracy</th>
               <th>Train/Valid/Test</th>
             </tr>
           </thead>
@@ -540,18 +540,7 @@
         {
           items: [
             {
-              team_id: "team-1",
-              period_start: "2026-02-01",
-              meetings_count: 12,
-              meetings_minutes: 420,
-              after_hours_ratio: 0.35,
-              commits_count: 26,
-              active_days: 5,
-              tasks_completed: 18,
-              tasks_reopened: 4,
-              messages_count: 160,
-              context_switches: 22,
-              deep_work_minutes: 240,
+              text: "Government plans new tax reforms in parliament.",
             },
           ],
         },
@@ -635,10 +624,10 @@
       function renderCharts(versions) {
         const ordered = (versions || []).slice().reverse();
         const prValues = ordered
-          .map((item) => item.metrics?.pr_auc)
+          .map((item) => item.metrics?.f1_macro)
           .filter((value) => typeof value === "number");
         const recallValues = ordered
-          .map((item) => item.metrics?.recall_at_precision)
+          .map((item) => item.metrics?.accuracy)
           .filter((value) => typeof value === "number");
 
         const prLast = prValues.length ? prValues[prValues.length - 1].toFixed(3) : "—";
@@ -692,15 +681,15 @@
           }
 
           const latest = registry.versions[0];
-          const threshold = latest?.metadata?.decision_threshold;
+          const bestModel = latest?.metadata?.best_model;
           document.getElementById("model-threshold").textContent =
-            typeof threshold === "number" ? threshold.toFixed(3) : "—";
+            typeof bestModel === "string" ? bestModel : "—";
 
           renderCharts(registry.versions);
 
           registry.versions.forEach((entry) => {
-            const prAuc = entry.metrics?.pr_auc ?? "—";
-            const recall = entry.metrics?.recall_at_precision ?? "—";
+            const prAuc = entry.metrics?.f1_macro ?? "—";
+            const recall = entry.metrics?.accuracy ?? "—";
             const trainRows = entry.metadata?.train_rows ?? "—";
             const validRows = entry.metadata?.valid_rows ?? "—";
             const testRows = entry.metadata?.test_rows ?? "—";

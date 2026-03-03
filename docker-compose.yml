@@ -6,12 +6,20 @@ services:
     env_file: .env
     environment:
       - PYTHONPATH=/app/src
+      - INFERENCE_HOST=${INFERENCE_HOST:-0.0.0.0}
+      - INFERENCE_PORT=${INFERENCE_PORT:-8000}
     ports:
-      - "8000:8000"
+      - "${INFERENCE_PORT:-8000}:${INFERENCE_PORT:-8000}"
     volumes:
       - ./data:/app/data
       - ./model_registry:/app/model_registry
-    command: ["uvicorn", "inference.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    command:
+      - uvicorn
+      - inference.app:app
+      - --host
+      - ${INFERENCE_HOST:-0.0.0.0}
+      - --port
+      - ${INFERENCE_PORT:-8000}
 
   training:
     build:

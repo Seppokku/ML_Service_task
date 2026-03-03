@@ -1,203 +1,178 @@
-﻿# Система прогнозирования выгорания команды с помощью ML
+# Система классификации новостей с ИИ
 
 ## Описание проекта
 
-Это ML‑сервис для прогнозирования риска выгорания по анонимным паттернам
-активности (митинги, коммиты, сообщения, глубинная работа). Проект объединяет
-два независимых сервиса: **Inference** (24/7, предсказания и UI) и **Training**
-(обучение по требованию). Модели хранятся в файловом регистре версий.
+Это ML-сервис для интеллектуальной классификации новостных текстов (BBC News) на категории `business`, `entertainment`, `politics`, `sport`, `tech`.
+Проект разделен на два независимых сервиса:
+- `Inference` — FastAPI-сервис для онлайн-предсказаний (работает 24/7)
+- `Training` — сервис обучения по требованию (one-shot запуск)
 
+Система использует общий preprocessing для train/inference, внутренний реестр моделей и конфигурацию через `.env`.
 ## Основные возможности
 
-### 🤖 Интеллектуальный прогноз выгорания
-- **Оценка риска**: модель возвращает `risk_score` и флаг `is_high_risk`
-- **Горячая замена модели**: `/reload` подхватывает новую версию без даунтайма
-- **Decision threshold**: порог решения хранится в метаданных модели
+### 🤖 Инференс и предсказания
+- **Онлайн-классификация текста**: endpoint `/predict` возвращает класс, confidence и вероятности по классам
+- **Горячая смена модели**: endpoint `/reload` загружает новую версию из реестра без остановки сервиса
+- **Контроль состояния**: `/health`, `/stats`, `/registry` для мониторинга
 
-### 📊 Автоматическая обработка данных
-- **Общий препроцессинг**: единые фичи для train и inference
-- **Регистр моделей**: версии, метрики, метаданные
-- **Синтетика**: генератор данных, если CSV отсутствует
+### 📊 Обучение и валидация
+- **Обучение по запросу**: training-сервис запускается отдельно и завершается после выполнения
+- **Стратифицированный split**: train/valid/test через `sklearn.model_selection.train_test_split`
+- **Валидация качества до деплоя**: модель проходит пороги по `f1_macro` и `accuracy`
 
-### 💬 UI‑интерфейс и мониторинг
-- **Статус и метрики**: health, статистика, PR‑AUC/Recall
-- **Переобучение**: кнопка + загрузка CSV
-- **Quick Predict**: отправка запроса прямо из UI
-- **Светлая/тёмная тема**
+### 🗂️ Управление моделями
+- **Внутренний реестр моделей**: версии хранятся в `model_registry/<version>/`
+- **Метрики и метаданные**: сохраняются вместе с каждой моделью
+- **Автоподгрузка в inference**: training отправляет сигнал на `/reload`
 
 ## Архитектура системы
 
 ### 🏗️ Основные компоненты
 
 **Inference сервис** (`src/inference/`)
-- FastAPI endpoints: `/predict`, `/health`, `/reload`, `/registry`, `/stats`, `/train`
-- UI Dashboard: `src/inference/static/index.html`
-- ModelService: загрузка и инференс модели
+- FastAPI-приложение и REST API
+- Загрузка модели из реестра на старте
+- Предсказания и перезагрузка версии модели
 
 **Training сервис** (`src/training/`)
-- CatBoost + подбор гиперпараметров
-- Метрики: PR‑AUC, Recall@P, best F1/F2
-- Валидация и запись в регистр
+- Загрузка данных из CSV
+- Подготовка данных и обучение моделей
+- Проверка метрик и деплой в реестр
 
 **Общий слой** (`src/common/`)
-- Конфиги `.env`
-- Препроцессинг и derived‑фичи
-- Файловый регистр моделей
-- Генерация синтетических данных
-
-**Данные и модели**
-- `data/raw/` — CSV данные
-- `model_registry/` — версии моделей
-
-**Контейнеры**
-- `Dockerfile.inference`, `Dockerfile.training`, `docker-compose.yml`
+- `config.py` — конфигурация из `.env`
+- `preprocessing.py` — общий preprocessing текста
+- `dataset.py` — стратифицированное разбиение
+- `registry.py` — файловый реестр моделей
+- `logging.py` — настройка логирования
 
 ## Технологический стек
 
 ### 🐍 Backend
 - **Python 3.9+**
-- **FastAPI** + **Uvicorn**
+- **FastAPI**
 - **Pydantic**
 
 ### 🤖 Машинное обучение
-- **CatBoost**
-- **scikit‑learn**
+- **scikit-learn**
 - **pandas / numpy**
-
-### 🗄️ Хранилище
-- файловый регистр моделей (`model_registry/`)
 
 ### 🔧 Инструменты разработки
 - **uv** — менеджер зависимостей
 - **pytest** — тестирование
-- **Docker / Docker Compose**
+- **Docker / Docker Compose** — контейнеризация и запуск
 
-## Структура данных
+## Структура проекта
 
-### 📋 Основные сущности
+```text
+ML_service_task/
+  data/
+    raw/                   # исходные данные (в т.ч. bbc-text.csv)
+    processed/             # служебные/подготовленные артефакты
+  model_registry/          # хранилище версий моделей
+  src/
+    common/                # общий код
+    inference/             # FastAPI сервис предсказаний
+    training/              # пайплайн обучения
+  tests/                   # unit-тесты
+  Dockerfile.inference
+  Dockerfile.training
+  docker-compose.yml
+  pyproject.toml
+```
 
-**TeamActivity (CSV row)**
-- Фичи активности + `burnout_label`
+## Конфигурация
 
-**ModelVersion**
-- `model.joblib`, `metrics.json`, `metadata.json`
+### ⚙️ `.env` параметры
 
-**TrainingMetrics**
-- PR‑AUC, Recall@P, best F1/F2, threshold
+```env
+DATA_PATH=data/raw/bbc-text.csv
+PROCESSED_DIR=data/processed
+REGISTRY_PATH=model_registry
+MODEL_VERSION=latest
+
+INFERENCE_HOST=0.0.0.0
+INFERENCE_PORT=8000
+INFERENCE_RELOAD_URL=http://inference:8000/reload
+
+METRICS_MIN_F1_MACRO=0.90
+METRICS_MIN_ACCURACY=0.90
+
+TRAIN_RATIO=0.7
+VALID_RATIO=0.2
+TEST_RATIO=0.1
+
+RANDOM_SEED=42
+TEXT_USE_STOPWORDS=true
+TEXT_USE_STEM=false
+TEXT_USE_LEMMA=false
+MAX_FEATURES=50000
+LOG_LEVEL=INFO
+```
 
 ## Использование
 
-### 🚀 Запуск системы (Docker)
+### 🚀 Запуск через Docker Compose
 
 1. Запуск inference:
 ```bash
-docker compose up --build
+docker compose up --build inference
 ```
 
-2. Обучение (по требованию):
+2. Запуск training по требованию:
 ```bash
 docker compose run --rm training
 ```
 
-UI:
-```
-http://localhost:8000/
+3. Запуск на порту `8001`:
+```env
+INFERENCE_PORT=8001
 ```
 
-### 🚀 Локальный запуск (через uv)
+### 🚀 Локальный запуск (Windows, `.venv`, Python 3.9)
 
-1. Создать окружение и установить зависимости:
+1. Подготовка окружения и зависимостей через `uv`:
 ```bash
-uv venv .venv
-uv pip compile pyproject.toml -o requirements.txt
-uv pip install -r requirements.txt
+py -3.9 -m venv .venv
+.\.venv\Scripts\python -m pip install --upgrade pip uv
+.\.venv\Scripts\uv pip compile pyproject.toml -o requirements.txt
+.\.venv\Scripts\uv pip install -r requirements.txt
+.\.venv\Scripts\uv pip install pytest
 ```
 
 2. Обучение:
 ```bash
-PYTHONPATH=src python -m training.train
+$env:PYTHONPATH="src"; .\.venv\Scripts\python -m training.train
 ```
 
 3. Запуск inference:
 ```bash
-PYTHONPATH=src uvicorn inference.app:app --host 127.0.0.1 --port 8000
+$env:PYTHONPATH="src"; .\.venv\Scripts\python -m uvicorn inference.app:app --host 127.0.0.1 --port 8001
 ```
 
 ## 📡 API эндпоинты
 
-- `GET /health` — состояние сервиса
+- `GET /health` — проверка состояния сервиса
+- `POST /predict` — предсказание категории текста
+- `POST /reload` — перезагрузка модели (latest/конкретная версия)
+- `GET /registry` — список версий моделей и метрик
 - `GET /stats` — статистика запросов
-- `GET /registry` — список моделей
-- `POST /predict` — предсказание
-- `POST /reload` — смена версии модели
-- `POST /train` — переобучение (можно CSV)
-- `GET /` или `/ui` — UI Dashboard
 
-## Как пользоваться
+Пример запроса:
 
-1) Запусти сервис (Docker или локально).  
-2) Проверь `/health`.  
-3) Сделай запрос в `/predict`.  
-4) При необходимости — переобучи через `/train` или UI.  
-
-## Пример запроса /predict
 ```bash
-curl -X POST http://localhost:8000/predict \
+curl -X POST http://localhost:8001/predict \
   -H "Content-Type: application/json" \
   -d '{
     "items": [
-      {
-        "team_id": "team-1",
-        "period_start": "2026-02-01",
-        "meetings_count": 12,
-        "meetings_minutes": 420,
-        "after_hours_ratio": 0.35,
-        "commits_count": 26,
-        "active_days": 5,
-        "tasks_completed": 18,
-        "tasks_reopened": 4,
-        "messages_count": 160,
-        "context_switches": 22,
-        "deep_work_minutes": 240
-      }
+      {"text": "Government plans new tax reforms in parliament."},
+      {"text": "Team wins league match after extra time."}
     ]
   }'
 ```
 
-## Формат CSV
-
-```
-team_id, period_start,
-meetings_count, meetings_minutes, after_hours_ratio,
-commits_count, active_days, tasks_completed, tasks_reopened,
-messages_count, context_switches, deep_work_minutes,
-burnout_label
-```
-
-Минимальный пример: `data/raw/sample_team_activity.csv`.
-
-## Конфигурация (.env)
-
-Ключевые параметры:
-```
-DATA_PATH=data/raw/team_activity.csv
-REGISTRY_PATH=model_registry
-MODEL_VERSION=latest
-
-METRICS_MIN_PR_AUC=0.3
-METRICS_MIN_RECALL=0.05
-RECALL_PRECISION_THRESHOLD=0.6
-```
-
-Параметры генерации синтетики:
-```
-LABEL_POS_RATE=0.18
-LABEL_NOISE_STD=0.12
-LABEL_SHARPNESS=2.0
-LABEL_SIGNAL_SCALE=1.15
-```
-
 ## 🧪 Тестирование
+
 ```bash
-pytest tests/
+.\.venv\Scripts\python -m pytest tests
 ```
