@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import pandas as pd
 
-from common.preprocessing import FEATURE_COLUMNS, build_features, get_numeric_features
+from common.preprocessing import (
+    TARGET_COLUMN,
+    TEXT_COLUMN,
+    TextPreprocessConfig,
+    preprocess_texts,
+    validate_training_frame,
+)
 
 
-def test_build_features_columns(sample_feature_row) -> None:
-    df = pd.DataFrame([sample_feature_row])
+def test_validate_training_frame(sample_text_row) -> None:
+    df = pd.DataFrame([sample_text_row])
+    validate_training_frame(df)
+    assert TEXT_COLUMN in df.columns
+    assert TARGET_COLUMN in df.columns
 
-    features = build_features(df)
-    assert list(features.columns) == FEATURE_COLUMNS
-    numeric_cols = get_numeric_features()
-    assert (features[numeric_cols].values >= 0).all()
-    assert features["weekday"].iloc[0] == "unknown"
-    assert features["month"].iloc[0] == "unknown"
+
+def test_preprocess_texts_stopwords(sample_text_row) -> None:
+    texts = [sample_text_row["text"]]
+    processed = preprocess_texts(
+        texts, TextPreprocessConfig(use_stopwords=True, use_stem=False, use_lemma=False)
+    )
+    assert len(processed) == 1
+    assert "as" not in processed[0]
+    assert "economy" in processed[0]

@@ -15,11 +15,11 @@ def test_registry_save_load(tmp_path) -> None:
     registry = ModelRegistry(tmp_path)
     version = registry.save_model(
         model=model,
-        metrics={"pr_auc": 0.5, "recall_at_precision": 0.5},
+        metrics={"f1_macro": 0.5, "accuracy": 0.5},
         feature_names=list(X.columns),
     )
 
     loaded_model, metadata, metrics = registry.load_model(version)
     assert loaded_model is not None
     assert metadata["feature_names"] == list(X.columns)
-    assert metrics["pr_auc"] == 0.5
+    assert metrics["f1_macro"] == 0.5
